@@ -4,7 +4,7 @@
 //
 //  Created by Shant Tokatyan on 12/7/19.
 //  Copyright © 2019 Stokaty. All rights reserved.
-//
+//  Forked by Henry Minden on 06/17/22
 
 import UIKit
 
@@ -49,6 +49,8 @@ public class NumberScrollCounter: UIView {
     /// The string that will be used to represent negative values.
     let negativeSign = "-"
     
+    private var valueStringContainsSeparator : Bool = false
+    
     /// The view that holds the prefix, or `nil` if there is no prefix.
     private var prefixView: UIView?
     /// The view that holds the suffix, or `nil` if there is no suffix.
@@ -78,13 +80,6 @@ public class NumberScrollCounter: UIView {
         }
         return startingX
     }
-
-    public override var intrinsicContentSize: CGSize {
-        .init(
-            width: suffixView?.frame.maxX ?? digitScrollers.last?.frame.maxX ?? frame.width,
-            height: digitScrollers.first?.frame.height ?? frame.height
-        )
-    }
     
     // MARK: - Init
     
@@ -110,7 +105,7 @@ public class NumberScrollCounter: UIView {
         - gradientColor: The color to use for the vertical gradient.  If this is `nil`, then no gradient is applied.
         - gradientStop: The stopping point for the gradient, where the bottom stopping point is (1 - gradientStop).  If gradientStop is not less than 0.5 than it is ignored.  If this is `nil`, then no gradient is applied.
      */
-    public init(value: Float, scrollDuration: TimeInterval = 0.3, decimalPlaces: Int = 0, prefix: String? = nil, suffix: String? = nil, seperator: String = ".", seperatorSpacing: CGFloat = 0, font: UIFont = UIFont.boldSystemFont(ofSize: UIFont.labelFontSize), textColor: UIColor = .black, animateInitialValue: Bool = false, gradientColor: UIColor? = nil, gradientStop: Float? = nil) {
+    public init(value: Float, stringValue: String, scrollDuration: TimeInterval = 0.3, decimalPlaces: Int = 0, prefix: String? = nil, suffix: String? = nil, seperator: String = ".", seperatorSpacing: CGFloat = 0, font: UIFont = UIFont.boldSystemFont(ofSize: UIFont.labelFontSize), textColor: UIColor = .black, animateInitialValue: Bool = false, gradientColor: UIColor? = nil, gradientStop: Float? = nil) {
 
         self.currentValue = value
         
@@ -133,7 +128,10 @@ public class NumberScrollCounter: UIView {
         
         super.init(frame: CGRect.zero)
         
-        setValue(value, animated: animateInitialValue)
+        self.clipsToBounds = false
+        
+        setValueAndString(value, stringValue: stringValue, animated: animateInitialValue)
+        //setValue(value, animated: animateInitialValue)
         frame.size.height = digitScrollers.first!.height
         
         sizeToFit()
@@ -166,6 +164,7 @@ public class NumberScrollCounter: UIView {
     public func setValue(_ value: Float, animated: Bool = true) {
         currentValue = value
         
+        
         var digitString = getStringArray(fromValue: currentValue)
         if decimalPlaces == 0, digitString.contains(seperator) {
             while let lastElement = digitString.popLast(), lastElement != seperator {
@@ -191,6 +190,60 @@ public class NumberScrollCounter: UIView {
         updateScrollers(withDigits: digitsOnly, animated: animated)
         updateScrollerLayout(animated: animated)
     }
+
+    public func setValueAndString(_ value: Float, stringValue: String, animated: Bool = true) {
+        currentValue = value
+        
+        
+        if stringValue.contains(Character(seperator)) {
+            valueStringContainsSeparator = true
+            
+            let subStrings = stringValue.split(separator: Character(seperator))
+            if subStrings.count > 1 {
+                decimalPlaces = subStrings[1].count
+            } else {
+                if stringValue.prefix(1) == seperator {
+                    decimalPlaces = stringValue.count - 1
+                }
+                if stringValue.suffix(1) == seperator {
+                    decimalPlaces = 0
+                }
+            }
+        } else {
+            valueStringContainsSeparator = false
+        }
+
+        if stringValue.count == 0 {
+            decimalPlaces = 0
+            valueStringContainsSeparator = false
+        }
+        
+        var digitString = getStringArray(fromStringValue: stringValue)
+        if decimalPlaces == 0, digitString.contains(seperator) {
+            while let lastElement = digitString.popLast(), lastElement != seperator {
+                continue
+            }
+        }
+        
+        var digitsOnly = [Int]()
+        for entry in digitString {
+            if let value = Int(entry) {
+                digitsOnly.append(value)
+            }
+        }
+     
+        if digitsOnly.count > digitScrollers.count {
+            let digitsToAdd = digitsOnly.count - digitScrollers.count
+            updateScrollers(add: digitsToAdd)
+        } else if digitScrollers.count > digitsOnly.count {
+            let digitsToRemove = digitScrollers.count - digitsOnly.count
+            updateScrollers(remove: digitsToRemove, animated: animated)
+        }
+        
+        updateScrollers(withDigits: digitsOnly, animated: animated)
+        updateScrollerLayout(animated: animated)
+    }
+
     
     /**
      Converts the given float to an array of strings.
@@ -201,6 +254,17 @@ public class NumberScrollCounter: UIView {
      */
     private func getStringArray(fromValue value: Float) -> [String] {
         return String(format: "%.\(decimalPlaces)f", value).compactMap { character -> String in
+            var entry = String(character)
+            let result = character.wholeNumberValue
+            if let resultNumber = result {
+                entry = "\(resultNumber)"
+            }
+            return entry
+        }
+    }
+    
+    private func getStringArray(fromStringValue value: String) -> [String] {
+        return value.compactMap { character -> String in
             var entry = String(character)
             let result = character.wholeNumberValue
             if let resultNumber = result {
@@ -248,11 +312,6 @@ public class NumberScrollCounter: UIView {
         animator!.addCompletion({ _ in
             self.animator = nil
         })
-
-        invalidateIntrinsicContentSize()
-        animator?.addAnimations { [weak self] in
-            self?.superview?.layoutIfNeeded()
-        }
         animator!.startAnimation()
     }
     
@@ -260,7 +319,7 @@ public class NumberScrollCounter: UIView {
      Creates a seperator view if one is needed but does not exist.  This does not update the layout of the seperator view.
      */
     private func createSeperatorViewIfNeeded() {
-        guard decimalPlaces > 0, seperatorView == nil else {
+        guard decimalPlaces > 0 || valueStringContainsSeparator == true, seperatorView == nil  else {
             return
         }
         
@@ -299,6 +358,7 @@ public class NumberScrollCounter: UIView {
             var x = startingX + CGFloat(index) * scroller.width
             if index >= seperatorLocation, let seperatorView = seperatorView {
                 x += seperatorView.frame.width
+     
             }
             animator.addAnimations {
                 scroller.alpha = 1
@@ -311,7 +371,23 @@ public class NumberScrollCounter: UIView {
                     seperatorView.frame.origin.x = (startingX + CGFloat(index) * scroller.width)
                 }
             }
+            
+            if index == seperatorLocation - 1 && decimalPlaces == 0 && valueStringContainsSeparator, let seperatorView = seperatorView {
+                animator.addAnimations {
+                    seperatorView.alpha = 1
+                    seperatorView.frame.origin.x = (startingX + CGFloat(index + 1) * scroller.width)
+                }
+            }
+            
+            if index == seperatorLocation - 1 && decimalPlaces == 0 && !valueStringContainsSeparator, let seperatorView = seperatorView {
+                animator.addAnimations {
+                    seperatorView.alpha = 0
+                }
+            }
+            
         }
+        
+
     }
     
     /**
@@ -493,8 +569,14 @@ public class NumberScrollCounter: UIView {
     private func updateScrollers(withDigits digits: [Int], animated: Bool) {
         if digits.count == digitScrollers.count {
             for (i, scroller) in digitScrollers.enumerated() {
-                scroller.scrollToItem(atIndex: digits[i], animated: animated)
+                if i == digitScrollers.count - 1 {
+                    scroller.scrollToItem(atIndex: digits[i], animated: true)
+                } else {
+                    scroller.scrollToItem(atIndex: digits[i], animated: false)
+                }
+                
             }
         }
     }
 }
+
